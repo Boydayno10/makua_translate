@@ -1,0 +1,5 @@
+Flask
+firebase-admin
+pyspellchecker
+google-generativeai
+gunicorn

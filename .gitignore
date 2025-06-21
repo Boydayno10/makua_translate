@@ -1,0 +1,8 @@
+# Evita subir o arquivo com segredos
+services.json
+
+# Outras pastas inúteis do Python
+__pycache__/
+*.pyc
+venv/
+.venv/
