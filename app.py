@@ -1,48 +1,63 @@
 # Importa as bibliotecas necessárias
 import firebase_admin
 from firebase_admin import credentials, db
-from flask import Flask, request, jsonify  # Flask para criar o servidor web
-from spellchecker import SpellChecker      # Para correção ortográfica em Português
-import os                                  # Para ler variáveis de ambiente
-from difflib import get_close_matches      # Para encontrar palavras similares (sugestões)
-import re                                  # Para expressões regulares
-import google.generativeai as genai        # Biblioteca do Google Gemini API
-import json                                # Para lidar com JSON
-import base64                              # Para decodificação de Base64
+from flask import Flask, request, jsonify # Flask para criar o servidor web
+from spellchecker import SpellChecker # Para correção ortográfica em Português
+import os # Para ler variáveis de ambiente
+from difflib import get_close_matches # Para encontrar palavras similares (sugestões)
+import re # Importa a biblioteca de expressões regulares para sanitize_firebase_key
+import google.generativeai as genai # Importa a biblioteca do Google Gemini API
+import json # Para lidar com JSON (parsing da resposta do Gemini)
+import base64 # Importa a biblioteca base64 para decodificação
 
 # Cria uma instância da aplicação Flask
 app = Flask(__name__)
 
 # --- CONFIGURAÇÕES DO FIREBASE (APENAS VARIÁVEIS DE AMBIENTE) ---
 # As credenciais do Firebase são lidas EXCLUSIVAMENTE de variáveis de ambiente.
+# FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 deve conter o JSON do services.json codificado em Base64.
 FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON_BASE64')
+# DATABASE_URL_ENV deve conter a URL do seu Firebase Realtime Database.
 DATABASE_URL_ENV = os.environ.get('FIREBASE_DATABASE_URL')
 
 # --- Configuração da API Gemini (APENAS VARIÁVEL DE AMBIENTE) ---
+# A chave da API Gemini é lida EXCLUSIVAMENTE de uma variável de ambiente ('GEMINI_API_KEY').
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-genai.configure(api_key=GEMINI_API_KEY)
-GEMINI_MODEL = 'gemini-2.0-flash'
+genai.configure(api_key=GEMINI_API_KEY) # Configura a API Gemini com a chave da variável de ambiente
+GEMINI_MODEL = 'gemini-2.0-flash' # Modelo Gemini a ser usado
 
-# --- Inicializa o Firebase Admin SDK ---
+# Inicializa o Firebase Admin SDK
+# Esta inicialização agora depende unicamente das variáveis de ambiente.
 if not firebase_admin._apps:
     try:
         if FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 and DATABASE_URL_ENV:
-            # Decodifica a string Base64 e carrega as credenciais
+            # Decodifica a string Base64 das credenciais do Firebase
             service_account_json_str = base64.b64decode(FIREBASE_SERVICE_ACCOUNT_JSON_BASE64).decode('utf-8')
             cred = credentials.Certificate(json.loads(service_account_json_str))
             db_url = DATABASE_URL_ENV
-            firebase_admin.initialize_app(cred, {'databaseURL': db_url})
-            print("✅ Firebase inicializado com sucesso usando variáveis de ambiente!")
+            print("Firebase inicializado com sucesso usando variáveis de ambiente!")
         else:
-            raise Exception("❌ Erro: FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 ou FIREBASE_DATABASE_URL não definidas.")
-    except Exception as e:
-        print(f"❌ Erro fatal ao inicializar Firebase: {e}")
-        raise  # Interrompe a aplicação se falhar
+            # Se as variáveis de ambiente essenciais não estiverem definidas, levanta um erro.
+            # Isso garante que o aplicativo não inicie em um ambiente de produção sem as credenciais.
+            raise Exception("Erro: Variáveis de ambiente FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 ou FIREBASE_DATABASE_URL não definidas. O Firebase não pode ser inicializado.")
+        
+        firebase_admin.initialize_app(cred, {'databaseURL': db_url})
 
+    except Exception as e:
+        print(f"Erro fatal ao inicializar Firebase: {e}")
+        raise # Levanta a exceção para impedir que o aplicativo inicie incorretamente
 
 # Obtém uma referência para o nó 'vocabulario' no seu Realtime Database
 # Todos os seus pares de palavras/frases serão armazenados aqui.
 vocabulario_ref = db.reference('vocabulario') 
+
+# --- Rota de Verificação de Status ---
+@app.route("/")
+def index():
+    """
+    Rota raiz para verificar se o serviço está online.
+    """
+    return "Makua Translate online!"
 
 # --- Função de Sanitização para Chaves do Firebase ---
 def sanitize_firebase_key(text):
@@ -69,6 +84,7 @@ spell = SpellChecker(language=None, distance=2)
 
 # Caminho para o arquivo de dicionário de Português que você baixou
 # (ex: 'dicionario_original.txt' ou 'words')
+# Este arquivo (pt_dictionary.txt) DEVE ser enviado para o seu repositório Git.
 DICTIONARY_FILE_PATH = 'pt_dictionary.txt' 
 
 # Tenta carregar o dicionário personalizado
@@ -109,15 +125,15 @@ if os.path.exists(DICTIONARY_FILE_PATH):
     except Exception as e:
         # Se houver um erro no carregamento/processamento do dicionário personalizado
         print(f"Erro ao carregar e limpar o dicionário de Português '{DICTIONARY_FILE_PATH}': {e}")
-        print("Tentando carregar o dicionário padrão de Português do pyspellchecker como fallback.")
-        # Tenta usar o dicionário padrão do pyspellchecker se o personalizado falhar
-        spell.set_language('pt') 
+        # Neste cenário, sem um dicionário local e sem fallback, o SpellChecker pode não funcionar como esperado.
+        # Poderia ser útil adicionar um erro fatal aqui também se o dicionário for crítico.
+        print("Aviso: Dicionário personalizado não pôde ser carregado. A correção ortográfica pode ser limitada.")
+        spell.set_language('pt') # Tenta carregar o dicionário padrão de Português como fallback
 else:
     # Se o arquivo de dicionário personalizado não for encontrado
-    print(f"Aviso: Dicionário personalizado '{DICTIONARY_FILE_PATH}' não encontrado.")
-    print("Tentando carregar o dicionário padrão de Português do pyspellchecker.")
-    # Carrega o dicionário padrão de Português como fallback
-    spell.set_language('pt') 
+    raise Exception(f"Erro: Dicionário personalizado '{DICTIONARY_FILE_PATH}' não encontrado. Este arquivo é essencial para a correção ortográfica.")
+    # No ambiente de produção do Render, o os.path.exists('pt_dictionary.txt')
+    # só será verdadeiro se você tiver feito push do arquivo para o seu repositório.
 
 # --- Funções Auxiliares de Lógica ---
 
@@ -212,6 +228,10 @@ def gerar_traducao_com_gemini(texto_pt, context_info=""):
     Retorna um dicionário com as variantes da tradução.
     """
     try:
+        # Verifica se a chave da API Gemini está definida antes de usá-la
+        if not GEMINI_API_KEY:
+            raise Exception("Erro: Variável de ambiente 'GEMINI_API_KEY' não definida. A API Gemini não pode ser usada.")
+            
         model = genai.GenerativeModel(GEMINI_MODEL)
         
         # Prompt aprimorado para solicitar JSON com múltiplas variantes e verificação.
@@ -398,7 +418,7 @@ def translate_text():
             
             # Se o Gemini traduziu a frase completa, atualizamos as sugestões de palavras para refletir isso
             for comp in components:
-                if comp['source'] == 'unknown':
+                if comp['source'] == 'unknown']:
                     suggestions_per_word[comp['original']] = {
                         'tipo': 'traduzida_por_gemini_frase_completa',
                         'original': comp['original'],
@@ -415,7 +435,7 @@ def translate_text():
             translated_by_gemini_flag = False 
             # Atualiza sugestões para chamada Gemini falha
             for comp in components:
-                if comp['source'] == 'unknown':
+                if comp['source'] == 'unknown']:
                     suggestions_per_word[comp['original']] = {
                         'tipo': 'nao_encontrada_gemini_falhou',
                         'original': comp['original'],
