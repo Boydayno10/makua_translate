@@ -483,8 +483,8 @@ def suggest_portuguese_words():
     word_pt = data.get('word', '').strip()
 
     if not word_pt:
-        # Retorna um erro se nenhuma palavra for fornecida
-        return jsonify({"error": "Nenhuma palavra fornecida para sugestão."}), 400
+        # Retorna um erro se nenhum texto for fornecido
+        return jsonify({"error": "Nenhum texto fornecido para sugestão."}), 400
     
     # Chama a função que faz a correção e as sugestões
     corrigida, sugestoes_ortograficas, sugestoes_vocab = corrigir_e_sugerir_portugues(word_pt)
