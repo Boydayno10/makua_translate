@@ -418,7 +418,8 @@ def translate_text():
             
             # Se o Gemini traduziu a frase completa, atualizamos as sugestões de palavras para refletir isso
             for comp in components:
-                if comp['source'] == 'unknown']:
+                # Corrigido o erro de sintaxe: removido o ']' extra
+                if comp['source'] == 'unknown':
                     suggestions_per_word[comp['original']] = {
                         'tipo': 'traduzida_por_gemini_frase_completa',
                         'original': comp['original'],
@@ -435,7 +436,8 @@ def translate_text():
             translated_by_gemini_flag = False 
             # Atualiza sugestões para chamada Gemini falha
             for comp in components:
-                if comp['source'] == 'unknown']:
+                # Corrigido o erro de sintaxe: removido o ']' extra
+                if comp['source'] == 'unknown':
                     suggestions_per_word[comp['original']] = {
                         'tipo': 'nao_encontrada_gemini_falhou',
                         'original': comp['original'],
